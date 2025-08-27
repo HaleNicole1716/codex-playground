@@ -11303,23 +11303,29 @@
                 if (!proceed) return;
             }
             
-            // 添加到系统中
-            const orders = currentParseResults.map((record, index) => ({
-                ...record,
-                投资经理: currentManager,
-                指令ID: `${currentManager}_${Date.now()}_${index}`,
-                创建时间: new Date().toISOString(),
-                状态: '待执行',
-                完成进度: 0,
-                子单列表: []
-            }));
-            
-            // 更新状态
-            if (!AppState.enhancedData.managers[currentManager]) {
-                AppState.enhancedData.managers[currentManager] = [];
-            }
-            AppState.enhancedData.managers[currentManager].push(...orders);
-            AppState.enhancedData.orders.push(...orders);
+            // 添加到系统中，尊重每条记录自己的投资经理
+            const orders = currentParseResults.map((record, index) => {
+                const mgr = (record.投资经理 && String(record.投资经理).trim()) || currentManager;
+                return {
+                    ...record,
+                    投资经理: mgr, // 不再统一覆盖为 currentManager
+                    指令ID: record.指令ID || `${mgr}_${Date.now()}_${index}`,
+                    创建时间: record.创建时间 || new Date().toISOString(),
+                    状态: record.状态 || '待执行',
+                    完成进度: Number.isFinite(record.完成进度) ? record.完成进度 : 0,
+                    子单列表: Array.isArray(record.子单列表) ? record.子单列表 : []
+                };
+            });
+
+            // 按各自经理分组入库，避免全部塞入 currentManager
+            orders.forEach(o => {
+                const m = o.投资经理 || '';
+                if (!AppState.enhancedData.managers[m]) {
+                    AppState.enhancedData.managers[m] = [];
+                }
+                AppState.enhancedData.managers[m].push(o);
+                AppState.enhancedData.orders.push(o);
+            });
             // 统一数据旁路写入（quotes）
             try {
                 const decoratedQ = orders.map(decorateQuoteRecord);
@@ -13192,10 +13198,11 @@
                 }
             }
             
-            // 添加投资经理信息和指令ID
+            // 添加投资经理信息和指令ID（仅在缺失时回退到默认经理）
             orders.forEach((order, index) => {
-                order.投资经理 = manager;
-                order.指令ID = `${manager}_${Date.now()}_${index}`;
+                const mgr = (order.投资经理 && String(order.投资经理).trim()) || manager;
+                order.投资经理 = mgr; // 不覆盖已有的逐条投资经理
+                order.指令ID = `${mgr}_${Date.now()}_${index}`; // ID 中带上真实经理便于排查
                 order.创建时间 = new Date().toISOString();
                 order.子单列表 = [];
                 
